@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#050505" />
+  <title>Super Tripper Pod</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root {
+      --bg: #050505;
+      --pod-bg: #0b0b0b;
+      --text: #ffffff;
+      --sub: #bbbbbb;
+      --accent: #ff6d00;
+      --arrow: #00e676;
+      --bezel: #222222;
+      --map-filter: invert(100%) hue-rotate(180deg) brightness(80%) contrast(115%);
+      --vignette: radial-gradient(circle, rgba(8,8,8,0.45) 30%, rgba(4,4,4,0.93) 82%);
+    }
+    body.day-mode {
+      --bg: #e8e8e8;
+      --pod-bg: #ffffff;
+      --text: #111111;
+      --sub: #444444;
+      --accent: #d84315;
+      --arrow: #00897b;
+      --bezel: #333333;
+      --map-filter: brightness(98%) contrast(105%);
+      --vignette: radial-gradient(circle, rgba(255,255,255,0.5) 30%, rgba(245,245,245,0.92) 82%);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+      transition: background 0.3s;
+    }
+
+    /* Top Search + Voice Bar */
+    .search-bar {
+      position: absolute;
+      top: 14px;
+      width: 92%;
+      max-width: 410px;
+      display: flex;
+      gap: 6px;
+      z-index: 1000;
+    }
+    .search-bar input {
+      flex: 1;
+      padding: 10px 14px;
+      border-radius: 25px;
+      border: 1px solid #444;
+      background: var(--pod-bg);
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+    }
+    .search-bar button {
+      padding: 10px 14px;
+      border-radius: 25px;
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    /* Circular Tripper Pod */
+    .tripper-pod {
+      position: relative;
+      width: 348px;
+      height: 348px;
+      border-radius: 50%;
+      border: 8px solid var(--bezel);
+      box-shadow: 0 0 0 2px #444, 0 12px 36px rgba(0, 0, 0, 0.8);
+      overflow: hidden;
+      background: var(--pod-bg);
+    }
+
+    #map {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      filter: var(--map-filter);
+      transition: opacity 0.3s;
+    }
+    .pure-arrow #map { opacity: 0; }
+
+    .vignette {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      background: var(--vignette);
+      pointer-events: none;
+    }
+
+    /* Splash / Standby Custom Photo & Name Layer */
+    .rider-splash {
+      position: absolute;
+      inset: 0;
+      z-index: 10;
+      background: #080808;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 20px;
+      transition: opacity 0.5s;
+    }
+    .rider-splash.hidden { opacity: 0; pointer-events: none; }
+    .rider-pic {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 3px solid var(--accent);
+      box-shadow: 0 0 20px rgba(255, 109, 0, 0.5);
+      margin-bottom: 12px;
+    }
+    .rider-title {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: 1.5px;
+      color: #fff;
+    }
+    .rider-sub {
+      font-size: 11px;
+      color: var(--accent);
+      letter-spacing: 2px;
+      margin-top: 4px;
+    }
+
+    /* Main HUD UI */
+    .pod-ui {
+      position: relative;
+      z-index: 3;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 18px;
+      pointer-events: none;
+    }
+
+    .pod-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: var(--accent);
+    }
+    .mini-avatar {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 1.5px solid var(--accent);
+    }
+
+    /* Primary + Secondary Turn Display */
+    .nav-center {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      position: relative;
+      width: 100%;
+    }
+    .turn-arrow {
+      font-size: 68px;
+      line-height: 1;
+      color: var(--arrow);
+    }
+    .next-turn-badge {
+      position: absolute;
+      right: 26px;
+      top: 10px;
+      background: rgba(255, 109, 0, 0.2);
+      border: 1px solid var(--accent);
+      border-radius: 12px;
+      padding: 3px 8px;
+      font-size: 11px;
+      color: var(--text);
+    }
+    .turn-dist {
+      font-size: 27px;
+      font-weight: 800;
+      margin-top: 2px;
+    }
+    .turn-road {
+      font-size: 12px;
+      color: var(--sub);
+      max-width: 235px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .tripper-footer {
+      display: flex;
+      gap: 18px;
+      background: rgba(128, 128, 128, 0.16);
+      backdrop-filter: blur(4px);
+      border: 1px solid rgba(128, 128, 128, 0.3);
+      padding: 6px 18px;
+      border-radius: 22px;
+    }
+    .stat { text-align: center; }
+    .stat-val { font-size: 16px; font-weight: 800; }
+    .stat-lbl { font-size: 9px; color: var(--accent); font-weight: 700; letter-spacing: 1px; }
+
+    /* Bottom Controls */
+    .controls {
+      position: absolute;
+      bottom: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 7px;
+      width: 96%;
+    }
+    .btn {
+      background: var(--pod-bg);
+      color: var(--text);
+      border: 1px solid #444;
+      padding: 8px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn.active { border-color: var(--arrow); color: var(--arrow); }
+
+    /* Customize Modal */
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+    }
+    .modal-box {
+      background: #161616;
+      border: 1px solid #333;
+      padding: 20px;
+      border-radius: 16px;
+      width: 88%;
+      max-width: 340px;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .modal-box input[type="text"] {
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #444;
+      background: #0b0b0b;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Search + Mic -->
+  <div class="search-bar">
+    <input type="text" id="destInput" placeholder="Destination..." />
+    <button onclick="startVoiceSearch()" title="Voice Search">🎤</button>
+    <button onclick="searchAndRoute()">GO</button>
+  </div>
+
+  <!-- Circular Pod -->
+  <div class="tripper-pod" id="podContainer">
+    <!-- Startup / Custom Profile Screen -->
+    <div class="rider-splash" id="splashScreen">
+      <img src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png" id="splashImg" class="rider-pic" alt="Rider" />
+      <div class="rider-title" id="splashName">ROHIT SINGH</div>
+      <div class="rider-sub">METEOR 350 • TRIPPER</div>
+    </div>
+
+    <div id="map"></div>
+    <div class="vignette"></div>
+
+    <div class="pod-ui">
+      <div class="pod-header">
+        <img src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png" id="headerImg" class="mini-avatar" alt="Avatar" />
+        <span id="headerName">ROHIT SINGH • 00:00</span>
+      </div>
+
+      <div class="nav-center">
+        <div class="next-turn-badge" id="nextTurnBadge">Next: --</div>
+        <div class="turn-arrow" id="turnArrow">⬆</div>
+        <div class="turn-dist" id="turnDist">--</div>
+        <div class="turn-road" id="turnRoad">Tap 🎤 or Enter Destination</div>
+      </div>
+
+      <div class="tripper-footer">
+        <div class="stat">
+          <div class="stat-val" id="remDist">-- km</div>
+          <div class="stat-lbl">DISTANCE</div>
+        </div>
+        <div class="stat">
+          <div class="stat-val" id="eta">--:--</div>
+          <div class="stat-lbl">ETA</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Buttons -->
+  <div class="controls">
+    <button class="btn" onclick="openProfileModal()">👤 Name/Pic</button>
+    <button class="btn" onclick="findNearestFuel()">⛽ Fuel</button>
+    <button class="btn" id="modeBtn" onclick="toggleArrowMode()">🧭 Arrow Only</button>
+    <button class="btn active" id="voiceBtn" onclick="toggleVoice()">🔊 Voice</button>
+    <button class="btn" id="wakeBtn" onclick="toggleWake()">☀️ Awake</button>
+    <button class="btn" onclick="toggleTheme()">🌗 Theme</button>
+  </div>
+
+  <!-- Custom Name & Photo Modal -->
+  <div class="modal" id="profileModal">
+    <div class="modal-box">
+      <h3>Customize Tripper Pod</h3>
+      <label style="font-size:12px;color:#aaa;">Rider Name / Bike Title:</label>
+      <input type="text" id="nameInput" placeholder="e.g., ROHIT SINGH" />
+      <label style="font-size:12px;color:#aaa;">Select Your Photo / Bike Pic:</label>
+      <input type="file" id="picInput" accept="image/*" />
+      <div style="display:flex;gap:10px;margin-top:8px;">
+        <button class="btn active" style="flex:1;" onclick="saveProfile()">Save</button>
+        <button class="btn" style="flex:1;" onclick="closeProfileModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    let curLat = 30.3165, curLon = 78.0322;
+    let destLat = null, destLon = null;
+    let routeSteps = [], currentStepIdx = 0;
+    let routeLine = null, lastSpokenIdx = -1;
+    let voiceOn = true, wakeLock = null, isRerouting = false;
+    let riderName = localStorage.getItem('riderName') || 'ROHIT SINGH';
+    let riderPic = localStorage.getItem('riderPic') || 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
+
+    // Apply Saved Name & Photo
+    function applyProfile() {
+      document.getElementById('splashName').innerText = riderName;
+      document.getElementById('splashImg').src = riderPic;
+      document.getElementById('headerImg').src = riderPic;
+    }
+    applyProfile();
+
+    // Hide Splash after 2.5 sec
+    setTimeout(() => {
+      document.getElementById('splashScreen').classList.add('hidden');
+    }, 2500);
+
+    // Map Setup with Custom Photo Marker
+    const map = L.map('map', { zoomControl: false, attributionControl: false }).setView([curLat, curLon], 16);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+    function createCustomMarker() {
+      return L.divIcon({
+        className: '',
+        html: `<img src="${riderPic}" style="width:28px;height:28px;border-radius:50%;border:2px solid #ff6d00;object-fit:cover;box-shadow:0 0 8px #000;" />`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14]
+      });
+    }
+    let bikeMarker = L.marker([curLat, curLon], { icon: createCustomMarker() }).addTo(map);
+
+    setInterval(() => {
+      const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      document.getElementById('headerName').innerText = `${riderName} • ${t}`;
+    }, 1000);
+
+    function openProfileModal() {
+      document.getElementById('nameInput').value = riderName;
+      document.getElementById('profileModal').style.display = 'flex';
+    }
+    function closeProfileModal() {
+      document.getElementById('profileModal').style.display = 'none';
+    }
+    function saveProfile() {
+      const newName = document.getElementById('nameInput').value.trim();
+      if (newName) {
+        riderName = newName.toUpperCase();
+        localStorage.setItem('riderName', riderName);
+      }
+      const file = document.getElementById('picInput').files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          riderPic = e.target.result;
+          localStorage.setItem('riderPic', riderPic);
+          applyProfile();
+          bikeMarker.setIcon(createCustomMarker());
+        };
+        reader.readAsDataURL(file);
+      } else {
+        applyProfile();
+      }
+      closeProfileModal();
+      // Briefly show splash preview
+      const sp = document.getElementById('splashScreen');
+      sp.classList.remove('hidden');
+      setTimeout(() => sp.classList.add('hidden'), 1800);
+    }
+
+    // Voice Search Input
+    function startVoiceSearch() {
+      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRec) return alert('Voice search not supported on this browser');
+      const rec = new SpeechRec();
+      rec.lang = 'en-IN';
+      document.getElementById('turnRoad').innerText = 'Listening... Speak destination';
+      rec.onresult = (e) => {
+        const text = e.results[0][0].transcript;
+        document.getElementById('destInput').value = text;
+        searchAndRoute();
+      };
+      rec.start();
+    }
+
+    function speak(text) {
+      if (!voiceOn || !('speechSynthesis' in window)) return;
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'en-IN';
+      window.speechSynthesis.speak(u);
+    }
+
+    function getDistMeters(lat1, lon1, lat2, lon2) {
+      const R = 6371000;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function formatDist(m) {
+      return m >= 1000 ? (m / 1000).toFixed(1) + ' km' : Math.round(m) + ' m';
+    }
+
+    function getArrow(mod = '', type = '') {
+      if (type === 'arrive') return '🏁';
+      if (type === 'roundabout' || type === 'rotary') return '🔄';
+      if (mod.includes('uturn')) return '↩';
+      if (mod.includes('left')) return '⬅';
+      if (mod.includes('right')) return '➡';
+      return '⬆';
+    }
+
+    if ('geolocation' in navigator) {
+      navigator.geolocation.watchPosition((pos) => {
+        curLat = pos.coords.latitude;
+        curLon = pos.coords.longitude;
+        bikeMarker.setLatLng([curLat, curLon]);
+        map.setView([curLat, curLon]);
+        if (routeSteps.length && currentStepIdx < routeSteps.length) updateNavigationProgress();
+      }, null, { enableHighAccuracy: true });
+    }
+
+    function updateNavigationProgress() {
+      const step = routeSteps[currentStepIdx];
+      const [sLon, sLat] = step.maneuver.location;
+      const distToTurn = getDistMeters(curLat, curLon, sLat, sLon);
+      document.getElementById('turnDist').innerText = formatDist(distToTurn);
+
+      if (distToTurn < 120 && lastSpokenIdx !== currentStepIdx) {
+        const mod = step.maneuver.modifier || step.maneuver.type || 'straight';
+        speak(`In ${Math.round(distToTurn)} meters, ${mod} ${step.name ? 'onto ' + step.name : ''}`);
+        lastSpokenIdx = currentStepIdx;
+      }
+
+      if (distToTurn < 30 && currentStepIdx < routeSteps.length - 1) {
+        currentStepIdx++;
+        renderCurrentStep();
+      }
+
+      if (destLat && destLon) {
+        const rem = getDistMeters(curLat, curLon, destLat, destLon);
+        document.getElementById('remDist').innerText = (rem / 1000).toFixed(1) + ' km';
+      }
+
+      if (distToTurn > step.distance + 180 && !isRerouting && destLat) {
+        isRerouting = true;
+        document.getElementById('turnRoad').innerText = 'Rerouting...';
+        speak('Rerouting');
+        buildRoute(destLat, destLon).finally(() => { isRerouting = false; });
+      }
+    }
+
+    function renderCurrentStep() {
+      const step = routeSteps[currentStepIdx];
+      const mod = step.maneuver.modifier || '';
+      const type = step.maneuver.type || '';
+      document.getElementById('turnArrow').innerText = getArrow(mod, type);
+      document.getElementById('turnDist').innerText = formatDist(step.distance);
+      document.getElementById('turnRoad').innerText = step.name || (type === 'arrive' ? 'Destination Ahead' : 'Continue Straight');
+
+      // Secondary Next-After-Next Preview
+      const afterNext = routeSteps[currentStepIdx + 1];
+      if (afterNext) {
+        const aArrow = getArrow(afterNext.maneuver.modifier || '', afterNext.maneuver.type || '');
+        document.getElementById('nextTurnBadge').innerText = `Then: ${aArrow}`;
+      } else {
+        document.getElementById('nextTurnBadge').innerText = 'Final Leg';
+      }
+    }
+
+    async function searchAndRoute() {
+      const q = document.getElementById('destInput').value.trim();
+      if (!q) return;
+      document.getElementById('turnRoad').innerText = 'Searching...';
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      if (!data.length) {
+        document.getElementById('turnRoad').innerText = 'Not found';
+        return;
+      }
+      destLat = parseFloat(data[0].lat);
+      destLon = parseFloat(data[0].lon);
+      await buildRoute(destLat, destLon);
+    }
+
+    async function buildRoute(dLat, dLon) {
+      const url = `https://router.project-osrm.org/route/v1/driving/${curLon},${curLat};${dLon},${dLat}?overview=full&geometries=geojson&steps=true`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!data.routes || !data.routes.length) return;
+
+      const route = data.routes[0];
+      const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
+      if (routeLine) map.removeLayer(routeLine);
+      routeLine = L.polyline(coords, { color: '#ff6d00', weight: 5 }).addTo(map);
+
+      document.getElementById('remDist').innerText = (route.distance / 1000).toFixed(1) + ' km';
+      const eta = new Date(Date.now() + route.duration * 1000);
+      document.getElementById('eta').innerText = eta.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      routeSteps = route.legs[0].steps;
+      currentStepIdx = routeSteps.length > 1 ? 1 : 0;
+      lastSpokenIdx = -1;
+      renderCurrentStep();
+      speak(`Navigation started. Distance ${(route.distance / 1000).toFixed(1)} kilometers.`);
+    }
+
+    async function findNearestFuel() {
+      document.getElementById('turnRoad').innerText = 'Finding fuel...';
+      const query = `[out:json];node["amenity"="fuel"](around:5000,${curLat},${curLon});out 1;`;
+      const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      if (data.elements && data.elements.length) {
+        destLat = data.elements[0].lat;
+        destLon = data.elements[0].lon;
+        await buildRoute(destLat, destLon);
+      } else {
+        document.getElementById('turnRoad').innerText = 'No fuel within 5 km';
+      }
+    }
+
+    function toggleArrowMode() {
+      const pod = document.getElementById('podContainer');
+      const isPure = pod.classList.toggle('pure-arrow');
+      document.getElementById('modeBtn').classList.toggle('active', isPure);
+    }
+    function toggleVoice() {
+      voiceOn = !voiceOn;
+      document.getElementById('voiceBtn').classList.toggle('active', voiceOn);
+    }
+    function toggleTheme() { document.body.classList.toggle('day-mode'); }
+    async function toggleWake() {
+      const btn = document.getElementById('wakeBtn');
+      if (!wakeLock) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        btn.classList.add('active');
+      } else {
+        await wakeLock.release();
+        wakeLock = null;
+        btn.classList.remove('active');
+      }
+    }
+  </script>
+</body>
+</html>
